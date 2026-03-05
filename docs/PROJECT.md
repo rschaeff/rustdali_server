@@ -46,140 +46,101 @@ libraries, with results displayed in an interactive web UI.
 - Real-time streaming of partial results
 
 
-## Implementation Plan
+## Progress
 
-### Phase 0: Project Scaffold
+### Phase 0: Project Scaffold -- COMPLETE
 
-- Initialize the repo structure:
-  ```
-  rustdali_server/
-    backend/              Python (FastAPI)
-      app/
-        main.py           FastAPI app entry point
-        config.py         Settings (DB, SLURM, paths)
-        auth.py           Lightweight auth (API keys)
-        models.py         SQLAlchemy / DB models
-        schemas.py        Pydantic request/response schemas
-        routers/
-          jobs.py         Job CRUD + submission endpoints
-          results.py      Result retrieval endpoints
-          libraries.py    Library listing / status
-        services/
-          slurm.py        SLURM job submission + polling
-          search.py       dali_rust invocation wrapper
-          import.py       PDB/CIF import via dali_rust
-        worker/
-          run_search.py   SLURM job script entry point
-      alembic/            DB migrations
-      requirements.txt
-    frontend/             Next.js / React
-      src/
-        app/              App router pages
-        components/
-          StructureViewer.tsx   Mol* 3D superposition
-          AlignmentViewer.tsx   Residue-level alignment
-          JobTable.tsx          Job list / status
-          SubmitForm.tsx        Job submission form
-        lib/
-          api.ts          Backend API client
-    scripts/
-      preprocess_ecod.py  ECOD library import
-      preprocess_pdb.py   PDB library import
-    docs/
-      PROJECT.md          This file
-  ```
-- Set up the dali_rust Python bindings as a dependency (built via maturin
-  from `../dali_cl/dali_rust/dali-python`).
-- Create the PostgreSQL database and initial schema.
+- Repo structure: `backend/` (FastAPI), `frontend/` (Next.js), `scripts/`
+- FastAPI app with routers (jobs, results, libraries), Pydantic schemas,
+  API key auth middleware
+- PostgreSQL schema `rustdali` on `dione:45000/ecod_protein` with tables:
+  `users`, `libraries`, `library_entries`, `jobs`, `results`
+- Next.js frontend with pages: landing, submit, jobs dashboard, job detail,
+  result detail (shell UI with Mol* placeholder)
+- SLURM worker script wired to `dali_rust` via PyO3 bindings
+- DB init script seeds admin user + ECOD/PDB library entries
+- Secrets in `.env` (gitignored), `.env.example` committed
 
-### Phase 1: Library Preprocessing
+### Phase 1: Library Preprocessing -- COMPLETE
 
-Batch import of target libraries into `.dat` format.
+Batch import of target libraries into `.dat` format via SLURM array jobs.
 
-- **ECOD**: Download ECOD domain definitions + PDB files. For each domain,
-  extract the relevant chain/residue range, run `dali.import_pdb()`, write
-  `.dat` via `dali.write_dat()`. Store metadata (ECOD id, T/H/F/X group,
-  domain boundaries) in Postgres.
-- **PDB**: Download PDB representative chains (e.g., from PDB clusters at
-  30/40/70/90/95/100% identity). Import each chain, write `.dat`. Store
-  metadata.
-- Both preprocessing jobs run as SLURM array jobs for parallelism.
-- Output: a directory of `.dat` files per library, plus a Postgres table of
-  library entries with metadata.
+**ECOD domain library** — 25,016 imported (99.3% of 25,203)
+- Source: `ecod_commons.domains` (representative, non-obsolete, PDB-sourced)
+  joined with `ecod_commons.f_group_assignments` for A/X/H/T/F classification
+- Domain masking: PDB-numbered ranges from `ecod_commons.domain_ranges`
+  (`range_type='pdb'`) used with `dali.mask_protein()` to extract sub-chain
+  domains. The `domains.range_definition` column uses ECOD-internal numbering
+  which does NOT match PDB author residue numbers.
+- 187 failures: multi-chain domains (e.g. chain `A-B`), tiny proteins
+- .dat files: `data/libraries/ecod/`
+
+**PDB chain library** — 27,289 imported (98.8% of 27,620)
+- Source: `ecod_commons.protein_clusters` (run_id=1, CD-HIT 70% identity)
+  joined with `ecod_commons.proteins` (source_type='pdb')
+- Filtered to: single-letter chain IDs, 30-5000 residues
+- PDB files from local mirror at `/usr2/pdb/data/structures/divided/pdb/`
+- 331 failures: tiny proteins, PDB parse errors
+- .dat files: `data/libraries/pdb/`
+
+**Issues resolved:**
+- `resid_map` from `dali.import_pdb()` returns PDB author residue numbers;
+  ECOD `domains.range_definition` uses different numbering — must use
+  `domain_ranges` table with `range_type='pdb'`
+- SLURM nodes use `iso8859_15` locale — set `PYTHONIOENCODING=utf-8`,
+  `PGCLIENTENCODING=UTF8`, `LC_ALL=en_US.UTF-8` in job scripts
+- `dali_rust` error messages contain Unicode box-drawing chars — sanitize
+  to ASCII before DB storage to avoid psycopg2 encoding errors
+- Offset-based batch queries shift when entries change status — use stable
+  code ordering with status filtering in Python
+
+
+## Remaining Phases
 
 ### Phase 2: Search Backend
 
-FastAPI service that accepts queries and dispatches SLURM jobs.
+Wire up end-to-end search: upload PDB -> import -> SLURM dispatch -> dali
+search -> results in DB. The API routes and worker script exist but need
+integration testing with the real ~25-27K target libraries.
 
-- **POST /api/jobs** — Upload PDB/CIF, select library, set parameters
-  (z_cut, skip_wolf, max_rounds). Returns job ID.
-- **GET /api/jobs/{id}** — Poll job status (queued, running, completed,
-  failed).
-- **GET /api/jobs/{id}/results** — Retrieve results (list of hits with
-  Z-score, RMSD, alignment blocks, rotation/translation).
-- **GET /api/jobs** — List user's jobs.
-
-Flow:
-1. User uploads query structure via API.
-2. Backend imports it (`dali.import_pdb`), writes `.dat` to job working dir.
-3. Backend submits a SLURM job (`sbatch`) that runs `worker/run_search.py`:
-   - Creates a `ProteinStore` pointed at the target library `.dat` dir.
-   - Adds the query protein to the store.
-   - Calls `dali.search_database()` or `dali.iterative_search()`.
-   - Writes results to JSON in the job working dir.
-   - Updates job status in Postgres.
-4. Backend polls SLURM (`sacct`/`squeue`) or the worker updates status
-   directly via DB.
+- Verify `run_search.py` worker against imported libraries end-to-end
+- Handle target list construction (all `.dat` stems from library dir or
+  query `library_entries` table for imported codes)
+- SLURM status polling: wire `check_job_status()` into a periodic task
+  or have the worker update DB directly (currently it does both — verify)
+- Test the full flow with a real query structure
 
 ### Phase 3: Job Tracking + Auth
 
-- **PostgreSQL schema**:
-  - `users`: id, name, api_key, created_at
-  - `libraries`: id, name, type (ecod/pdb), dat_dir, entry_count, updated_at
-  - `jobs`: id, user_id, library_id, status, query_code, parameters (JSON),
-    slurm_job_id, submitted_at, started_at, completed_at, error_message
-  - `results`: id, job_id, hit_cd2, zscore, score, rmsd, nblock, blocks
-    (JSON), rotation (JSON), translation (JSON), alignments (JSON), round
-- **Auth**: API key in `Authorization` header. Middleware checks key against
-  `users` table. Simple — no sessions, no OAuth.
-- **Status transitions**: queued -> submitted -> running -> completed | failed
+Harden the job lifecycle and operational robustness.
+
+- Status synchronization: detect SLURM timeout/OOM/node failure via `sacct`
+  and mark jobs as failed with meaningful error messages
+- Job cleanup: expire old jobs, delete working dirs after retention period
+- Admin endpoint for creating/listing users (currently only via init_db.py)
+- Auth is functional — API key middleware works, tested in Phase 0
 
 ### Phase 4: Frontend
 
-Next.js app with:
+Make the shell pages functional with real data and add visualization.
 
-- **Submit page** (`/submit`):
-  - File upload (PDB/CIF)
-  - Library selector (ECOD domains / PDB chains)
-  - Parameter controls (z-score cutoff, skip_wolf toggle)
-  - Submit button -> POST /api/jobs
-
-- **Dashboard page** (`/jobs`):
-  - Table of user's jobs: id, query, library, status, submitted time
-  - Auto-refresh for pending jobs
-  - Click to view results
-
-- **Results page** (`/jobs/[id]`):
-  - Hit table: sortable by Z-score, RMSD, nblock
-  - Click a hit to open detail view
-
-- **Detail view** (`/jobs/[id]/hits/[cd2]`):
-  - **Structure superposition**: Mol* viewer showing query (color A)
-    superposed on hit (color B) using the rotation/translation from the
-    alignment. Load both structures, apply transform, highlight aligned
-    regions.
-  - **Alignment viewer**: Block-level alignment diagram showing which
-    residue ranges in query map to which ranges in hit. Color by
-    secondary structure. Show sequence threading.
+- **Submit page**: end-to-end file upload flow with validation feedback
+- **Jobs dashboard**: real polling against backend, status badge updates
+- **Results page**: sortable hit table with actual search results
+- **Detail view**:
+  - **Mol* structure superposition**: load query + hit structures, apply
+    rotation/translation from alignment, highlight aligned regions
+  - **Alignment viewer**: residue-level block diagram with secondary
+    structure coloring and sequence threading
 
 ### Phase 5: Polish + Deploy
 
-- Error handling and retries for SLURM failures
-- Job cleanup (expire old jobs, delete working dirs)
-- Library update automation (cron/systemd timer for ECOD/PDB refresh)
-- Basic logging and monitoring
-- Internal deployment (systemd services for backend, nginx reverse proxy
-  for frontend)
+- Error handling and SLURM retry logic
+- Job retention / cleanup cron
+- Library update automation (re-run preprocessing on ECOD/PDB updates)
+- Logging and basic monitoring
+- Internal deployment: systemd units for FastAPI, nginx reverse proxy,
+  HTTPS via internal CA
 
 
 ## Technical Decisions
@@ -188,17 +149,69 @@ Next.js app with:
 |----------|--------|-----------|
 | Backend framework | FastAPI (Python) | Direct access to dali_rust PyO3 bindings; async; good for I/O-bound API |
 | Database | PostgreSQL | Already available (psycopg2); robust; JSON columns for flexible result storage |
+| DB schema | `rustdali` on `ecod_protein` | Co-located with ECOD data for easy joins during preprocessing |
 | Job dispatch | SLURM (sbatch) | leda cluster available; searches are CPU-bound; natural fit |
 | 3D viewer | Mol* | Modern, actively maintained, supports superposition transforms |
 | Frontend | Next.js (App Router) | React ecosystem; SSR for initial load; good DX |
 | Auth | API keys | Simplest viable approach for internal tool |
 | Library storage | Flat .dat files + Postgres metadata | Matches dali_rust ProteinStore expectations; metadata in DB for search/filter |
+| ECOD domain ranges | `domain_ranges.range_type='pdb'` | Author-numbered residues match `dali.import_pdb()` resid_map |
+| PDB representatives | CD-HIT 70% identity clusters | ~28K chains — large enough for comprehensive coverage, small enough for feasible search times |
+| SLURM encoding | Explicit UTF-8 env vars in job scripts | leda nodes default to iso8859_15; psycopg2 chokes on Unicode error messages |
+
+
+## Project Structure
+
+```
+rustdali_server/
+  .env                    Secrets (gitignored)
+  .env.example            Template for .env
+  backend/
+    app/
+      main.py             FastAPI entry point
+      config.py           Settings from .env via pydantic-settings
+      database.py         SQLAlchemy engine, sessions, schema init
+      auth.py             API key middleware
+      models.py           ORM: User, Library, LibraryEntry, Job, Result
+      schemas.py          Pydantic request/response types
+      routers/
+        jobs.py           POST/GET /api/jobs
+        results.py        GET /api/jobs/{id}/results
+        libraries.py      GET /api/libraries
+      services/
+        slurm.py          sbatch submission + sacct polling
+        search.py         dali_rust search wrapper
+      worker/
+        run_search.py     SLURM job entry point
+    requirements.txt
+  frontend/
+    src/
+      app/                Next.js App Router pages
+        page.tsx           Landing
+        submit/page.tsx    Job submission
+        jobs/page.tsx      Job dashboard
+        jobs/[id]/page.tsx Job detail + results table
+        jobs/[id]/results/[resultId]/page.tsx  Hit detail
+      lib/api.ts          Typed API client
+  scripts/
+    init_db.py            Create schema, seed user + libraries
+    preprocess_ecod.py    ECOD domain import (register/submit/import)
+    preprocess_pdb.py     PDB chain import (register/submit/import)
+    check_import_status.py  Monitor import progress
+  data/                   (gitignored)
+    libraries/ecod/       25,016 .dat files
+    libraries/pdb/        27,289 .dat files
+    jobs/                 Per-job working directories
+    logs/                 SLURM import logs
+  docs/
+    PROJECT.md            This file
+```
 
 
 ## Dependencies
 
 - `dali_rust` Python bindings (via maturin from `../dali_cl/dali_rust/dali-python`)
-- Python 3.11+, FastAPI, SQLAlchemy, Alembic, psycopg2
-- Node.js 20+, Next.js 14+, Mol* (molstar npm package)
-- PostgreSQL 14+
-- SLURM (leda cluster)
+- Python 3.11+, FastAPI, SQLAlchemy, Alembic, psycopg2, pydantic-settings
+- Node.js 20+, Next.js 14+, Mol* (molstar — Phase 4)
+- PostgreSQL 17 (on dione:45000)
+- SLURM (leda cluster, partition: All)
