@@ -44,6 +44,38 @@ class Library(Base):
     updated_at = Column(DateTime(timezone=True), default=utcnow)
 
     jobs = relationship("Job", back_populates="library")
+    entries = relationship("LibraryEntry", back_populates="library", cascade="all, delete-orphan")
+
+
+class LibraryEntry(Base):
+    __tablename__ = "library_entries"
+    __table_args__ = (
+        UniqueConstraint("library_id", "code", name="uq_library_code"),
+        {"schema": SCHEMA},
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    library_id = Column(UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.libraries.id"), nullable=False, index=True)
+    code = Column(String(64), nullable=False, index=True)  # dat file stem, e.g. "e1f0xA1"
+    pdb_id = Column(String(8))
+    chain_id = Column(String(16))
+    domain_range = Column(Text)  # e.g. "A:274-319,A:377-567"
+    nres = Column(Integer)
+    nseg = Column(Integer)
+    # ECOD classification (null for PDB library)
+    ecod_domain_id = Column(String(32))
+    ecod_uid = Column(Integer)
+    a_group = Column(String(16))
+    x_group = Column(String(16))
+    h_group = Column(String(16))
+    t_group = Column(String(16))
+    f_group = Column(String(16))
+    # Processing status
+    status = Column(String(16), default="pending")  # pending, imported, failed
+    error_message = Column(Text)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+    library = relationship("Library", back_populates="entries")
 
 
 class Job(Base):

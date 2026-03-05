@@ -13,6 +13,7 @@ engine = create_engine(settings.database_url, pool_pre_ping=True)
 def set_search_path(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute(f"SET search_path TO {settings.db_schema}, public")
+    cursor.execute("SET client_encoding TO 'UTF8'")
     cursor.close()
 
 
