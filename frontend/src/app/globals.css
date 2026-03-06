@@ -1,3 +1,6 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Mol* viewer styles */
+@import "molstar/build/viewer/molstar.css";

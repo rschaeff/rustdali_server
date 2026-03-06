@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_db
-from .routers import admin, jobs, results, libraries
+from .routers import admin, jobs, results, libraries, structures
 
 app = FastAPI(
     title="RustDALI Server",
@@ -24,6 +24,7 @@ app.include_router(admin.router)
 app.include_router(jobs.router)
 app.include_router(results.router)
 app.include_router(libraries.router)
+app.include_router(structures.router)
 
 
 @app.on_event("startup")
