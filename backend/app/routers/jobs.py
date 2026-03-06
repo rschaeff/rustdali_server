@@ -1,5 +1,6 @@
 """Job submission and status endpoints."""
 
+import re
 import shutil
 import uuid
 from pathlib import Path
@@ -36,7 +37,8 @@ def submit_job(
 
     # Create job
     job_id = uuid.uuid4()
-    code = query_code or file.filename.rsplit(".", 1)[0][:64]
+    raw_code = query_code or file.filename.rsplit(".", 1)[0]
+    code = re.sub(r"[^A-Za-z0-9_]", "", raw_code)[:64] or "query"
     work_dir = settings.jobs_dir / str(job_id)
     work_dir.mkdir(parents=True, exist_ok=True)
 
