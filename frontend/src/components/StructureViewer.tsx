@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 interface StructureViewerProps {
   queryUrl: string;
@@ -11,9 +12,18 @@ interface StructureViewerProps {
   translation: number[] | null;
 }
 
+async function fetchAsDataUrl(apiPath: string): Promise<string> {
+  const resp = await apiFetch(apiPath.replace(/^\/api/, ""));
+  if (!resp.ok) throw new Error(`Failed to fetch structure: ${resp.status}`);
+  const blob = await resp.blob();
+  return URL.createObjectURL(blob);
+}
+
 export default function StructureViewer({
   queryUrl,
   hitUrl,
+  rotation,
+  translation,
 }: StructureViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -22,11 +32,21 @@ export default function StructureViewer({
 
   useEffect(() => {
     let cancelled = false;
+    const blobUrls: string[] = [];
 
     async function init() {
       if (!containerRef.current) return;
 
       try {
+        // Fetch PDB data with auth headers, convert to blob URLs
+        const [hitBlobUrl, queryBlobUrl] = await Promise.all([
+          fetchAsDataUrl(hitUrl),
+          fetchAsDataUrl(queryUrl),
+        ]);
+        blobUrls.push(hitBlobUrl, queryBlobUrl);
+
+        if (cancelled) return;
+
         const { createPluginUI } = await import("molstar/lib/mol-plugin-ui");
         const { renderReact18 } = await import("molstar/lib/mol-plugin-ui/react18");
         const { DefaultPluginUISpec } = await import("molstar/lib/mol-plugin-ui/spec");
@@ -55,9 +75,12 @@ export default function StructureViewer({
 
         pluginRef.current = plugin;
 
+        const { StateTransforms } = await import("molstar/lib/mol-plugin-state/transforms");
+        const { Mat4 } = await import("molstar/lib/mol-math/linear-algebra/3d/mat4");
+
         // Load hit structure first (template)
         const hitData = await plugin.builders.data.download(
-          { url: hitUrl },
+          { url: hitBlobUrl },
           { state: { isGhost: true } }
         );
         const hitParsed = await plugin.builders.structure.parseTrajectory(hitData, "pdb");
@@ -65,11 +88,38 @@ export default function StructureViewer({
 
         // Load query structure
         const queryData = await plugin.builders.data.download(
-          { url: queryUrl },
+          { url: queryBlobUrl },
           { state: { isGhost: true } }
         );
         const queryParsed = await plugin.builders.structure.parseTrajectory(queryData, "pdb");
         await plugin.builders.structure.hierarchy.applyPreset(queryParsed, "default");
+
+        // Apply DALI rotation/translation to query structure
+        if (rotation && translation) {
+          // Build column-major 4x4 matrix from DALI's row-major 3x3 rotation + translation
+          const m = Mat4.identity();
+          // DALI: transformed = R @ coords + t
+          // Mat4.setValue(m, row, col, val) stores column-major
+          for (let i = 0; i < 3; i++) {
+            for (let j = 0; j < 3; j++) {
+              Mat4.setValue(m, i, j, rotation[i][j]);
+            }
+            Mat4.setValue(m, i, 3, translation[i]);
+          }
+
+          // Find all structure nodes from the query (second loaded structure)
+          const structures = plugin.managers.structure.hierarchy.current.structures;
+          if (structures.length >= 2) {
+            const queryStructure = structures[1];
+            const structRef = queryStructure.cell.transform.ref;
+            const update = plugin.build();
+            update.to(structRef).apply(
+              StateTransforms.Model.TransformStructureConformation,
+              { transform: { name: "matrix" as const, params: { data: m, transpose: false } } }
+            );
+            await update.commit();
+          }
+        }
 
         // Reset camera
         await PluginCommands.Camera.Reset(plugin, {});
@@ -88,6 +138,7 @@ export default function StructureViewer({
 
     return () => {
       cancelled = true;
+      blobUrls.forEach((u) => URL.revokeObjectURL(u));
       if (pluginRef.current) {
         pluginRef.current.dispose();
         pluginRef.current = null;

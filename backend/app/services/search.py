@@ -35,7 +35,9 @@ def run_search(
     work_path = Path(work_dir)
 
     # Import query structure
+    # Note: import_pdb appends chain to code, e.g. "1enh" + chain "A" -> "1enhA"
     protein = dali.import_pdb(query_pdb_path, query_chain, query_code)
+    actual_code = protein.code
 
     # Create a store directory under work_dir with symlinks to library .dat files.
     # This avoids polluting the library dir with query/masked protein .dat files
@@ -55,7 +57,7 @@ def run_search(
     # Discover targets (all library .dat files, excluding query)
     targets = [
         dat_file.stem for dat_file in lib_path.glob("*.dat")
-        if dat_file.stem != query_code
+        if dat_file.stem != actual_code
     ]
 
     if not targets:
@@ -63,7 +65,7 @@ def run_search(
 
     # Run iterative search
     hits = dali.iterative_search(
-        query_code, targets, store,
+        actual_code, targets, store,
         min_zscore=z_cut,
         skip_wolf=skip_wolf,
         max_rounds=max_rounds,

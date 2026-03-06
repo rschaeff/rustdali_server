@@ -49,6 +49,18 @@ export interface AlignmentBlock {
   r2: number;
 }
 
+export interface Alignment {
+  query_code: string;
+  hit_code: string;
+  query_nres: number;
+  hit_nres: number;
+  query_seq: string;
+  match_line: string;
+  hit_seq: string;
+  query_resids: (number | null)[];
+  hit_resids: (number | null)[];
+}
+
 export interface SearchResult {
   id: string;
   hit_cd2: string;

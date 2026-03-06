@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import dynamic from "next/dynamic";
-import { apiFetch, Job, SearchResult } from "@/lib/api";
+import { apiFetch, Alignment, Job, SearchResult } from "@/lib/api";
 
 // Dynamic import to avoid SSR for Mol*
 const StructureViewer = dynamic(
@@ -75,18 +75,78 @@ function AlignmentMap({ result }: { result: SearchResult }) {
   );
 }
 
+const LINE_WIDTH = 60;
+
+function SequenceAlignment({ alignment }: { alignment: Alignment }) {
+  const { query_seq, match_line, hit_seq, query_resids, hit_resids } = alignment;
+  const len = query_seq.length;
+  const chunks: { qSeq: string; mLine: string; hSeq: string; qStart: string; qEnd: string; hStart: string; hEnd: string }[] = [];
+
+  for (let i = 0; i < len; i += LINE_WIDTH) {
+    const end = Math.min(i + LINE_WIDTH, len);
+    const qSlice = query_seq.slice(i, end);
+    const mSlice = match_line.slice(i, end);
+    const hSlice = hit_seq.slice(i, end);
+
+    // Find first and last non-gap residue numbers for labels
+    let qStart = "", qEnd = "", hStart = "", hEnd = "";
+    for (let j = i; j < end; j++) {
+      if (query_resids[j] != null) { qStart = String(query_resids[j]); break; }
+    }
+    for (let j = end - 1; j >= i; j--) {
+      if (query_resids[j] != null) { qEnd = String(query_resids[j]); break; }
+    }
+    for (let j = i; j < end; j++) {
+      if (hit_resids[j] != null) { hStart = String(hit_resids[j]); break; }
+    }
+    for (let j = end - 1; j >= i; j--) {
+      if (hit_resids[j] != null) { hEnd = String(hit_resids[j]); break; }
+    }
+
+    chunks.push({ qSeq: qSlice, mLine: mSlice, hSeq: hSlice, qStart, qEnd, hStart, hEnd });
+  }
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold mb-3">Sequence Alignment</h2>
+      <div className="bg-white border border-gray-200 rounded-lg p-4 overflow-x-auto">
+        <pre className="text-xs leading-5 font-mono">
+          {chunks.map((c, i) => (
+            <span key={i}>
+              <span className="text-gray-400">{`Query ${c.qStart.padStart(5)} `}</span>
+              <span className="text-blue-700">{c.qSeq}</span>
+              <span className="text-gray-400">{` ${c.qEnd}`}</span>
+              {"\n"}
+              <span className="text-gray-400">{"             "}</span>
+              <span className="text-gray-500">{c.mLine}</span>
+              {"\n"}
+              <span className="text-gray-400">{`Hit   ${c.hStart.padStart(5)} `}</span>
+              <span className="text-green-700">{c.hSeq}</span>
+              <span className="text-gray-400">{` ${c.hEnd}`}</span>
+              {"\n\n"}
+            </span>
+          ))}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
 export default function ResultDetailPage() {
   const { id, resultId } = useParams<{ id: string; resultId: string }>();
   const [job, setJob] = useState<Job | null>(null);
   const [result, setResult] = useState<SearchResult | null>(null);
+  const [alignment, setAlignment] = useState<Alignment | null>(null);
 
   useEffect(() => {
     Promise.all([
       apiFetch(`/jobs/${id}`).then((r) => r.json()),
       apiFetch(`/jobs/${id}/results/${resultId}`).then((r) => r.json()),
-    ]).then(([j, r]) => {
+      apiFetch(`/jobs/${id}/results/${resultId}/alignment`).then((r) => r.ok ? r.json() : null),
+    ]).then(([j, r, a]) => {
       setJob(j);
       setResult(r);
+      setAlignment(a);
     });
   }, [id, resultId]);
 
@@ -146,6 +206,9 @@ export default function ResultDetailPage() {
 
       {/* Alignment visualization */}
       <AlignmentMap result={result} />
+
+      {/* Sequence alignment */}
+      {alignment && <SequenceAlignment alignment={alignment} />}
 
       {/* Alignment blocks table */}
       {result.blocks && result.blocks.length > 0 && (

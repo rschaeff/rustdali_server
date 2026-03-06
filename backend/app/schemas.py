@@ -92,3 +92,15 @@ class ResultOut(BaseModel):
     round: int
 
     model_config = {"from_attributes": True}
+
+
+class AlignmentOut(BaseModel):
+    query_code: str
+    hit_code: str
+    query_nres: int
+    hit_nres: int
+    query_seq: str
+    match_line: str
+    hit_seq: str
+    query_resids: list[int | None]
+    hit_resids: list[int | None]
