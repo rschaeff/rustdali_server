@@ -120,39 +120,52 @@ search -> results in DB. Tested against both full libraries.
 - Worker error messages not sanitized for Unicode before DB storage.
 
 
+### Phase 3: Job Tracking + Auth -- COMPLETE
+
+Hardened job lifecycle and operational robustness.
+
+- SLURM failure detection via `sacct`: handles TIMEOUT, OUT_OF_MEMORY,
+  NODE_FAIL, PREEMPTED, CANCELLED with descriptive error messages
+- `sync_job_status()` called on-demand when GET /api/jobs/{id} is polled
+- Admin bulk sync: POST /api/admin/jobs/sync checks all in-flight jobs
+- Job cleanup: POST /api/admin/jobs/cleanup deletes expired jobs + work dirs
+  (configurable retention, dry-run by default)
+- Admin user management: POST/GET /api/admin/users (gated by admin API key
+  from .env, separate from per-user API keys)
+- Admin auth via `require_admin` dependency checking RUSTDALI_ADMIN_API_KEY
+
+### Phase 4: Frontend -- COMPLETE
+
+Functional pages with real data and 3D structure visualization.
+
+- **Layout**: ECOD-themed (Inter font, sticky header, active nav
+  highlighting, blue-600 primary accent)
+- **Settings page**: API key entry with save/test connection
+- **Submit page**: file upload, library selector, parameter controls
+- **Jobs dashboard**: auto-refresh polling (stops when all terminal),
+  status badges, timestamps
+- **Job detail**: Lali column, running indicator, timing display,
+  stops polling when terminal
+- **Result detail**:
+  - Mol* 3D structure viewer (dynamic import, loads query + hit PDB)
+  - Alignment block visualization (bar diagram)
+  - Breadcrumb navigation
+- **Structure serving**: new `/api/jobs/{id}/structures/query` and
+  `/api/jobs/{id}/structures/hit/{code}` endpoints serve decompressed
+  PDB files from work_dir and local PDB mirror respectively
+
+
+### Phase 5: Polish + Deploy -- COMPLETE
+
+- Structured request logging with request IDs (`X-Request-ID` header)
+- systemd units: `rustdali-backend.service` (uvicorn), `rustdali-frontend.service` (Next.js)
+- nginx reverse proxy: `/api/` → backend:8000, `/` → frontend:3000
+- Deploy files in `deploy/` directory
+- Health endpoint at `/api/health`
+
 ## Remaining Phases
 
-### Phase 3: Job Tracking + Auth
-
-Harden the job lifecycle and operational robustness.
-
-- Status synchronization: detect SLURM timeout/OOM/node failure via `sacct`
-  and mark jobs as failed with meaningful error messages
-- Job cleanup: expire old jobs, delete working dirs after retention period
-- Admin endpoint for creating/listing users (currently only via init_db.py)
-- Auth is functional — API key middleware works, tested in Phase 0
-
-### Phase 4: Frontend
-
-Make the shell pages functional with real data and add visualization.
-
-- **Submit page**: end-to-end file upload flow with validation feedback
-- **Jobs dashboard**: real polling against backend, status badge updates
-- **Results page**: sortable hit table with actual search results
-- **Detail view**:
-  - **Mol* structure superposition**: load query + hit structures, apply
-    rotation/translation from alignment, highlight aligned regions
-  - **Alignment viewer**: residue-level block diagram with secondary
-    structure coloring and sequence threading
-
-### Phase 5: Polish + Deploy
-
-- Error handling and SLURM retry logic
-- Job retention / cleanup cron
 - Library update automation (re-run preprocessing on ECOD/PDB updates)
-- Logging and basic monitoring
-- Internal deployment: systemd units for FastAPI, nginx reverse proxy,
-  HTTPS via internal CA
 
 
 ## Technical Decisions
@@ -188,9 +201,11 @@ rustdali_server/
       models.py           ORM: User, Library, LibraryEntry, Job, Result
       schemas.py          Pydantic request/response types
       routers/
+        admin.py          Admin: users, job sync, cleanup
         jobs.py           POST/GET /api/jobs
         results.py        GET /api/jobs/{id}/results
         libraries.py      GET /api/libraries
+        structures.py     PDB file serving for Mol* viewer
       services/
         slurm.py          sbatch submission + sacct polling
         search.py         dali_rust search wrapper
@@ -205,6 +220,8 @@ rustdali_server/
         jobs/page.tsx      Job dashboard
         jobs/[id]/page.tsx Job detail + results table
         jobs/[id]/results/[resultId]/page.tsx  Hit detail
+      components/
+        StructureViewer.tsx Mol* 3D viewer component
       lib/api.ts          Typed API client
   scripts/
     init_db.py            Create schema, seed user + libraries
@@ -216,6 +233,10 @@ rustdali_server/
     libraries/pdb/        27,289 .dat files
     jobs/                 Per-job working directories
     logs/                 SLURM import logs
+  deploy/
+    rustdali-backend.service   systemd unit for FastAPI/uvicorn
+    rustdali-frontend.service  systemd unit for Next.js
+    rustdali.nginx.conf        nginx reverse proxy config
   docs/
     PROJECT.md            This file
 ```

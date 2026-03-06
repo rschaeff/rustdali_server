@@ -1,0 +1,15 @@
+[Unit]
+Description=RustDALI API Server
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=rschaeff
+WorkingDirectory=/home/rschaeff/dev/rustdali_server/backend
+EnvironmentFile=/home/rschaeff/dev/rustdali_server/.env
+ExecStart=/home/rschaeff/.local/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

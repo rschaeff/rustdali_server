@@ -1,0 +1,15 @@
+[Unit]
+Description=RustDALI Frontend (Next.js)
+After=network.target
+
+[Service]
+Type=simple
+User=rschaeff
+WorkingDirectory=/home/rschaeff/dev/rustdali_server/frontend
+ExecStart=/usr/bin/npx next start --port 3000
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
