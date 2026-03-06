@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Python venv with `dali_rust` PyO3 bindings and FastAPI dependencies
+- Python 3 with `dali_rust` PyO3 bindings and FastAPI dependencies (system Anaconda)
 - Node.js 18+ with `npm install` completed in `frontend/`
 - PostgreSQL accessible (dione:45000, db=ecod_protein)
 - `.env` file configured in project root (see `.env.example`)
@@ -17,7 +17,7 @@ Good for internal/temporary use. Easy to start and stop.
 screen -S rustdali
 
 # Terminal 1: backend
-source .venv/bin/activate
+source ~/.bashrc
 cd backend
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 
