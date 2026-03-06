@@ -1,6 +1,7 @@
 """DALI search execution — called by the SLURM worker."""
 
 import json
+import os
 from pathlib import Path
 
 import dali
@@ -35,17 +36,26 @@ def run_search(
 
     # Import query structure
     protein = dali.import_pdb(query_pdb_path, query_chain, query_code)
-    query_dat = work_path / f"{query_code}.dat"
-    dali.write_dat(protein, str(query_dat))
 
-    # Build store from library + query
-    store = dali.ProteinStore(library_dat_dir)
+    # Create a store directory under work_dir with symlinks to library .dat files.
+    # This avoids polluting the library dir with query/masked protein .dat files
+    # written by add_protein() and iterative_search().
+    store_dir = work_path / "store"
+    store_dir.mkdir(exist_ok=True)
+    lib_path = Path(library_dat_dir)
+    for dat_file in lib_path.glob("*.dat"):
+        link = store_dir / dat_file.name
+        if not link.exists():
+            os.symlink(dat_file, link)
+
+    # Build store from work_dir and add query protein
+    store = dali.ProteinStore(str(store_dir))
     store.add_protein(protein)
 
-    # Discover targets (all .dat files in library)
+    # Discover targets (all library .dat files, excluding query)
     targets = [
-        p.stem for p in Path(library_dat_dir).glob("*.dat")
-        if p.stem != query_code
+        dat_file.stem for dat_file in lib_path.glob("*.dat")
+        if dat_file.stem != query_code
     ]
 
     if not targets:
@@ -56,6 +66,7 @@ def run_search(
         query_code, targets, store,
         min_zscore=z_cut,
         skip_wolf=skip_wolf,
+        max_rounds=max_rounds,
     )
 
     # Serialize results

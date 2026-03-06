@@ -76,7 +76,7 @@ def main():
 
     except Exception as e:
         job.status = "failed"
-        job.error_message = str(e)
+        job.error_message = str(e).encode("ascii", "replace").decode("ascii")[:500]
         job.completed_at = datetime.now(timezone.utc)
         db.commit()
         print(f"Job {job_id} failed: {e}", file=sys.stderr)

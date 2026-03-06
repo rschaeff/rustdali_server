@@ -36,6 +36,11 @@ def submit_search_job(job) -> str:
 
         source ~/.bashrc
 
+        export PYTHONIOENCODING=utf-8
+        export PGCLIENTENCODING=UTF8
+        export LC_ALL=en_US.UTF-8
+        unset OMP_PROC_BIND
+
         python3 {worker_script} \\
             --job-id {job.id} \\
             --work-dir {work_dir}
