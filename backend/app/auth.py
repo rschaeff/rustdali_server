@@ -21,3 +21,12 @@ def get_current_user(
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid API key")
     return user
+
+
+def require_admin(api_key: str | None = Security(api_key_scheme)) -> str:
+    """Verify the request carries the admin API key (from .env)."""
+    if not settings.admin_api_key:
+        raise HTTPException(status_code=503, detail="Admin API key not configured")
+    if api_key != settings.admin_api_key:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return api_key

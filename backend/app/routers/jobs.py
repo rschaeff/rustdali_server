@@ -12,7 +12,7 @@ from ..database import get_db
 from ..models import Job, Library, User
 from ..schemas import JobSubmit, JobOut
 from ..auth import get_current_user
-from ..services.slurm import submit_search_job
+from ..services.slurm import submit_search_job, sync_job_status
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -105,4 +105,6 @@ def get_job(
     job = db.query(Job).filter(Job.id == job_id, Job.user_id == user.id).first()
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
+    # Sync with SLURM if job is still in-flight
+    sync_job_status(job, db)
     return job

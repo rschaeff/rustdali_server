@@ -102,8 +102,17 @@ All endpoints require `X-API-Key` header.
 | GET | `/api/libraries` | List available search libraries |
 | POST | `/api/jobs` | Submit a search job (multipart file upload) |
 | GET | `/api/jobs` | List user's jobs |
-| GET | `/api/jobs/{id}` | Job status and details |
+| GET | `/api/jobs/{id}` | Job status (auto-syncs with SLURM) |
 | GET | `/api/jobs/{id}/results` | Search results (ordered by Z-score) |
+
+### Admin endpoints (require admin API key)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/users` | List all users |
+| POST | `/api/admin/users` | Create a new user |
+| POST | `/api/admin/jobs/sync` | Sync all in-flight jobs with SLURM |
+| POST | `/api/admin/jobs/cleanup` | Delete expired jobs and work dirs |
 
 ## License
 

@@ -17,6 +17,19 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+
+
+class UserOutWithKey(BaseModel):
+    id: UUID
+    name: str
+    api_key: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # --- Libraries ---
 
 class LibraryOut(BaseModel):

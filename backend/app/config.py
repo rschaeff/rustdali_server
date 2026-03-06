@@ -58,6 +58,10 @@ class Settings(BaseSettings):
 
     # Auth
     api_key_header: str = "X-API-Key"
+    admin_api_key: str = ""  # set in .env for admin endpoints
+
+    # Job retention
+    job_retention_days: int = 30
 
     # Server
     host: str = "0.0.0.0"
