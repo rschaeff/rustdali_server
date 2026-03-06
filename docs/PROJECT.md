@@ -95,20 +95,32 @@ Batch import of target libraries into `.dat` format via SLURM array jobs.
   code ordering with status filtering in Python
 
 
+### Phase 2: Search Backend -- COMPLETE
+
+End-to-end search pipeline: upload PDB -> import -> SLURM dispatch -> dali
+search -> results in DB. Tested against both full libraries.
+
+- Worker (`run_search.py`) verified against 25K ECOD and 27K PDB libraries
+- Target list constructed from library dir glob (all `.dat` stems)
+- Worker updates job status directly in DB (queued -> running -> completed/failed)
+- Full SLURM round-trip tested: sbatch -> leda node -> results in DB
+- Test query: myoglobin (101m) found e1a6mA1 (z=28.5, ECOD) and 8kfhA
+  (z=28.2, PDB) — correct globin matches
+- Search time: ~15 min for 25K ECOD library on single leda node (4 CPUs)
+
+**Issues resolved:**
+- `ProteinStore.add_protein()` writes .dat files to the store's directory;
+  creating the store from the library dir polluted it with query and masked
+  protein files. Fixed by creating a `store/` subdirectory in the job's
+  work_dir with symlinks to library .dat files.
+- `max_rounds` parameter was accepted by `run_search()` but not forwarded
+  to `dali.iterative_search()`.
+- SLURM job scripts were missing UTF-8 encoding exports and `unset
+  OMP_PROC_BIND` (required by dali_rust/foldseek on SLURM nodes).
+- Worker error messages not sanitized for Unicode before DB storage.
+
+
 ## Remaining Phases
-
-### Phase 2: Search Backend
-
-Wire up end-to-end search: upload PDB -> import -> SLURM dispatch -> dali
-search -> results in DB. The API routes and worker script exist but need
-integration testing with the real ~25-27K target libraries.
-
-- Verify `run_search.py` worker against imported libraries end-to-end
-- Handle target list construction (all `.dat` stems from library dir or
-  query `library_entries` table for imported codes)
-- SLURM status polling: wire `check_job_status()` into a periodic task
-  or have the worker update DB directly (currently it does both — verify)
-- Test the full flow with a real query structure
 
 ### Phase 3: Job Tracking + Auth
 
@@ -158,6 +170,7 @@ Make the shell pages functional with real data and add visualization.
 | ECOD domain ranges | `domain_ranges.range_type='pdb'` | Author-numbered residues match `dali.import_pdb()` resid_map |
 | PDB representatives | CD-HIT 70% identity clusters | ~28K chains — large enough for comprehensive coverage, small enough for feasible search times |
 | SLURM encoding | Explicit UTF-8 env vars in job scripts | leda nodes default to iso8859_15; psycopg2 chokes on Unicode error messages |
+| Search store isolation | Symlinked store dir per job in work_dir | Prevents query/masked .dat files from polluting shared library directories |
 
 
 ## Project Structure
